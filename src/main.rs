@@ -2,24 +2,17 @@ use std::error::Error;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 
+const PONG: &[u8; 7] = b"+PONG\r\n";
+
 fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
-    println!("handling connection");
-    let buf = &mut String::new();
-    {
-        let mut buf_reader = BufReader::new(&stream).take(1000);
-        while let Ok(req_size) = buf_reader.read_line(buf) {
-            println!("Got {} bytes: '{}'", req_size, buf.trim());
-            if buf.trim() == "ping" {
-                println!("Got ping");
-                break;
-            }
-            buf.clear();
+    let reader = BufReader::new(stream.try_clone()?).take(10000);
+    for line in reader.lines() {
+        let line = line?;
+        println!("Got message: {}", line);
+        if line.trim() == "ping" {
+            stream.write_all(PONG)?;
         }
     }
-    let pong = b"+PONG\r\n";
-    println!("Answering with: pong");
-    stream.write_all(pong)?;
-
     Ok(())
 }
 
