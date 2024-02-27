@@ -1,39 +1,60 @@
-use std::error::Error;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::{error::Error, net::SocketAddr};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::{TcpListener, TcpStream},
+    signal,
+};
 
 const PONG: &[u8; 7] = b"+PONG\r\n";
+const LISTEN_ADDR: &str = "127.0.0.1:6379";
 
-fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
-    let reader = BufReader::new(stream.try_clone()?).take(10000);
-    for line in reader.lines() {
-        let line = line?;
-        println!("Got message: {}", line);
-        if line.trim() == "ping" {
-            stream.write_all(PONG)?;
-        }
-    }
-    Ok(())
-}
-
-fn main() -> Result<(), Box<dyn Error>> {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    println!("Logs from your program will appear here!");
-
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
-
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                println!("accepted new connection");
-                handle_connection(stream)?;
+async fn handle_connection(
+    mut connection: TcpStream,
+    sender: SocketAddr,
+) -> Result<(), Box<dyn Error>> {
+    println!("Accepted connection from {}", sender);
+    let mut buf = String::new();
+    let mut buf_reader = BufReader::new(&mut connection);
+    loop {
+        let n = match buf_reader.read_line(&mut buf).await {
+            Ok(0) => {
+                println!("Reached EOF on the connection {}\n", sender);
+                return Ok(());
             }
             Err(e) => {
-                println!("error: {}", e);
-                return Err(e.into());
+                println!("Error reading from connection {}: {}\n", sender, e);
+                return Err(Box::new(e));
+            }
+            Ok(n) => n,
+        };
+
+        println!("got {} bytes: '{}'", n, buf.trim());
+        if buf.trim() == "ping" {
+            buf_reader.write_all(PONG).await?;
+        }
+        buf.clear();
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    // You can use print statements as follows for debugging, they'll be visible when running tests.
+    let listener = TcpListener::bind(LISTEN_ADDR).await?;
+    println!("Starting accepting connections on {}", LISTEN_ADDR);
+    loop {
+        tokio::select! {
+            result = listener.accept() => {
+                // let a = result;
+                let (connection, addr) = result?;
+                tokio::spawn(async move {
+                    let _ = handle_connection(connection, addr).await;
+                });
+            }
+            _ = signal::ctrl_c() => {
+                println!("Got keyboard signal. Shutting down the server...");
+                break;
             }
         }
     }
-
     Ok(())
 }
