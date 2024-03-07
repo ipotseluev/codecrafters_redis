@@ -1,0 +1,29 @@
+[tasks.format_rs]
+install_crate = "rustfmt"
+command       = "cargo"
+args          = ["fmt", "--", "--emit=files"]
+
+[tasks.format_toml]
+install_crate = "taplo"
+command       = "taplo"
+args          = ["format"]
+
+[tasks.lint]
+install_crate = "clippy"
+command       = "cargo"
+args          = ["clippy", "--all-targets", "--all-features", "--", "-D", "warnings"]
+
+[tasks.machete]
+install_crate = "machete"
+command       = "cargo"
+args          = ["machete"]
+
+[tasks.format]
+dependencies = ["format_rs", "format_toml"]
+
+[tasks.test]
+command = "cargo"
+args    = ["test"]
+
+[tasks.check]
+dependencies = ["format", "lint", "machete", "test"]

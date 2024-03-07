@@ -1,6 +1,10 @@
+//! Implementation of Redis server made for educational purposes.
+//! [Link to course](https://app.codecrafters.io/courses/redis)
 use std::{error::Error, net::SocketAddr};
 mod error;
-mod protocol;
+mod processor;
+pub(crate) mod protocol;
+mod storage;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -8,13 +12,6 @@ use tokio::{
 };
 
 const LISTEN_ADDR: &str = "127.0.0.1:6379";
-
-fn handle_request(request: protocol::Request) -> Result<protocol::Response, Box<dyn Error>> {
-    match request {
-        protocol::Request::Ping => Ok(protocol::Response::Ping),
-        protocol::Request::Echo(arg) => Ok(protocol::Response::Echo(arg)),
-    }
-}
 
 async fn handle_connection(
     mut connection: TcpStream,
@@ -34,8 +31,10 @@ async fn handle_connection(
         match protocol::Request::deserialize(&mut sbuf) {
             Ok(request) => {
                 dbg!(&request);
-                let response: protocol::Response = handle_request(request)?;
-                connection.write_all(response.serialize().as_bytes()).await?;
+                let response = processor::process_request(request).await?;
+                connection
+                    .write_all(response.serialize().as_bytes())
+                    .await?;
             }
             Err(e) => {
                 println!("Failed to deserialize request. Error: {:?}", e);
