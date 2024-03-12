@@ -19,18 +19,18 @@ async fn handle_connection(
     sender: SocketAddr,
 ) -> Result<(), Box<dyn Error>> {
     println!("Accepted connection from {}", sender);
-    let mut bbuf = [0; 1024];
-    let mut sbuf = String::new();
+    let mut byte_buf = [0; 1024];
+    let mut str_buf = String::new();
     let processor = RequestProcessor::new();
     loop {
-        let n = connection.read(&mut bbuf).await?;
+        let n = connection.read(&mut byte_buf).await?;
         if n == 0 {
             break;
         }
         println!("received {n} bytes");
 
-        sbuf.push_str(String::from_utf8_lossy(&bbuf[..n]).as_ref());
-        match protocol::Request::deserialize(&mut sbuf) {
+        str_buf.push_str(String::from_utf8_lossy(&byte_buf[..n]).as_ref());
+        match protocol::Request::deserialize(&mut str_buf) {
             Ok(request) => {
                 dbg!(&request);
                 let response = processor.process_request(request).await?;

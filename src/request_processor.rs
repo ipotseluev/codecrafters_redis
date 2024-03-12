@@ -1,7 +1,7 @@
 //! Handles client requests.
 use crate::{
     error::RedisError,
-    protocol::{Request, Response},
+    protocol::{self, Request, Response},
     storage,
 };
 
@@ -22,7 +22,7 @@ impl RequestProcessor {
         match request {
             Request::Ping => Ok(Response::Ping),
             Request::Echo(arg) => Ok(Response::Echo(arg)),
-            Request::Set(key, value) => self.process_request_set(key, value).await,
+            Request::Set(request) => self.process_request_set(request).await,
             Request::Get(key) => self.process_request_get(key).await,
         }
     }
@@ -36,12 +36,8 @@ impl RequestProcessor {
     }
 
     /// Store key-value pair in the storage.
-    async fn process_request_set(
-        &self,
-        key: String,
-        value: String,
-    ) -> Result<Response, RedisError> {
-        self.storage.set(key, value).await;
+    async fn process_request_set(&self, request: protocol::Set) -> Result<Response, RedisError> {
+        self.storage.set(request).await;
         Ok(Response::Ok)
     }
 }

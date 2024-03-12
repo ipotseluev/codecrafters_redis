@@ -1,4 +1,5 @@
 //! This module provides a simple in-memory key-value storage.
+use crate::protocol::Set;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
@@ -23,8 +24,8 @@ impl Storage {
     }
 
     /// Store key-value pair in the storage.
-    pub async fn set(&self, key: String, value: String) {
-        self.inner.write().await.insert(key, value);
+    pub async fn set(&self, request: Set) {
+        self.inner.write().await.insert(request.key, request.value);
     }
 }
 
@@ -35,7 +36,12 @@ mod test {
     #[tokio::test]
     async fn set_and_get() {
         let storage = Storage::instance();
-        storage.set("key".to_string(), "value".to_string()).await;
+        let request = Set {
+            key: "key".to_string(),
+            value: "value".to_string(),
+            expiration_timeout_ms: None,
+        };
+        storage.set(request).await;
         assert_eq!(storage.get("key").await, Some("value".to_string()));
     }
 

@@ -1,5 +1,6 @@
 //! Contains the Redis request types and their serialization and deserialization.
 use crate::error::RedisError;
+use crate::protocol::Set;
 use core::fmt;
 
 /// Contains Redis requests. All requests are arrays.
@@ -7,7 +8,7 @@ use core::fmt;
 pub enum Request {
     Ping,
     Echo(String),
-    Set(String, String),
+    Set(Set),
     Get(String),
 }
 
@@ -25,7 +26,7 @@ impl TryFrom<Array> for Request {
         match array.args[0].to_lowercase().as_str() {
             "ping" => Ok(Request::Ping),
             "echo" => Ok(Request::Echo(array.args[1].clone())),
-            "set" => Ok(Request::Set(array.args[1].clone(), array.args[2].clone())),
+            "set" => Ok(Request::Set(Set::try_from(array)?)),
             "get" => Ok(Request::Get(array.args[1].clone())),
             cmd => Err(RedisError::DeserializationError {
                 raw_redis_message: array.serialize(),
@@ -36,39 +37,33 @@ impl TryFrom<Array> for Request {
 }
 
 #[derive(Eq, PartialEq, Debug)]
-struct Array {
-    size: usize,
-    args: Vec<String>,
+pub(crate) struct Array {
+    pub(crate) args: Vec<String>,
 }
 
 impl Array {
-    fn new(args_count: usize, args: Vec<String>) -> Self {
-        Array {
-            size: args_count,
-            args,
-        }
+    pub(crate) fn new(args: Vec<String>) -> Self {
+        Array { args }
     }
 
-    fn add_element(&mut self, arg: String) {
-        self.args.push(arg);
-    }
-
-    fn is_complete(&self) -> bool {
-        self.args.len() == self.size
-    }
-
-    fn serialize(self) -> String {
+    pub(crate) fn serialize(self) -> String {
         assert!(
-            self.size > 0,
+            self.args_count() > 0,
             "Array size must be greater than 0 for serialization"
         );
-        let mut result = std::format!("*{}\r\n", self.size);
+        let mut result = std::format!("*{}\r\n", self.args_count());
         self.args.into_iter().for_each(|arg| {
             result.push_str(format!("${}\r\n{}\r\n", arg.chars().count(), arg).as_str());
         });
         result
     }
 
+    /// Returns number of array elements, including a command name.
+    pub(crate) fn args_count(&self) -> usize {
+        self.args.len()
+    }
+
+    /// Consumes the part of the buffer that contains the array and returns the array.
     fn deserialize(buffer: &mut String) -> Result<Self, RedisError> {
         let original_message = buffer.clone();
 
@@ -104,7 +99,7 @@ impl Array {
                 })?
         };
 
-        let mut array = Array::new(number_of_args, vec![]);
+        let mut args = Vec::with_capacity(number_of_args);
 
         for _i in 0..number_of_args * 2 {
             if let Some(line) = lines.next() {
@@ -112,7 +107,7 @@ impl Array {
                     // This is a length line
                     continue;
                 }
-                array.add_element(line.to_string());
+                args.push(line.to_string());
             } else {
                 return Err(RedisError::DeserializationError {
                     raw_redis_message: buffer.clone(),
@@ -121,12 +116,14 @@ impl Array {
             }
         }
 
+        let array = Array::new(args);
+
         // Collect reminder of buffer. It may contain more messages.
         *buffer = lines
             .map(|line| line.to_string() + "\r\n")
             .collect::<String>();
 
-        if array.is_complete() {
+        if array.args_count() == number_of_args {
             Ok(array)
         } else {
             Err(RedisError::DeserializationError {
@@ -139,7 +136,12 @@ impl Array {
 
 impl fmt::Display for Array {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Array(size: {}, args: {:?})", self.size, self.args)
+        write!(
+            f,
+            "Array(size: {}, args: {:?})",
+            self.args_count(),
+            self.args
+        )
     }
 }
 
@@ -255,7 +257,11 @@ mod deserialize {
         let mut buffer: String = "*3\r\n$3\r\nset\r\n$1\r\na\r\n$1\r\nb\r\n".to_owned();
         assert_eq!(
             Request::deserialize(&mut buffer).unwrap(),
-            Request::Set("a".to_string(), "b".to_string())
+            Request::Set(Set {
+                key: "a".to_string(),
+                value: "b".to_string(),
+                expiration_timeout_ms: None
+            })
         );
         assert!(buffer.is_empty());
     }
@@ -267,7 +273,11 @@ mod deserialize {
         let mut buffer: String = "*3\r\n$3\r\nset\r\n$1\r\nA\r\n$1\r\nb\r\n".to_owned();
         assert_eq!(
             Request::deserialize(&mut buffer).unwrap(),
-            Request::Set("A".to_string(), "b".to_string())
+            Request::Set(Set {
+                key: "A".to_string(),
+                value: "b".to_string(),
+                expiration_timeout_ms: None
+            })
         );
         assert!(buffer.is_empty());
     }
